@@ -9,5 +9,5 @@ output "instance_publicip" {
 # EC2 Instance Public DNS
 output "instance_publicdns" {
     description = "EC2 Instance Public DNS"
-    value = aws_instance.myec2vm.public_ip
+    value = aws_instance.myec2vm.public_dns
 }
