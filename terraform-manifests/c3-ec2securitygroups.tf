@@ -15,7 +15,7 @@ resource "aws_security_group" "vpc-ssh" {
 
     # Outbound
     egress {
-        descript         = "Allow all IP and Ports outbound"
+        description      = "Allow all IP and Ports outbound"
         from_port        = 0
         to_port          = 0
         protocol         = "-1"
@@ -52,7 +52,7 @@ resource "aws_security_group" "vpc-web" {
 
     # Outbound
     egress {
-        descript         = "Allow all IP and Ports outbound"
+        description      = "Allow all IP and Ports outbound"
         from_port        = 0
         to_port          = 0
         protocol         = "-1"
