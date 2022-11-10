@@ -1,184 +1,101 @@
-# Terraform Variables and Datasources
+# Terraform For Loops, Lists, Maps and Count Meta-Argument
 
 ## Step-00: Pre-requisite Note
-- Create a `terraform-key` in AWS EC2 Key pairs which we will reference in our EC2 Instance
+- We are using the `default vpc` in `us-east-1` region
 
 ## Step-01: Introduction
-### Terraform Concepts
-- Terraform Input Variables
-- Terraform Datasources
-- Terraform Output Values
+- Terraform Meta-Argument: `Count`
+- **Terraform Lists & Maps**
+  - List(string)
+  - map(string)
+- **Terraform for loops**
+  - for loop with List
+  - for loop with Map
+  - for loop with Map Advanced
+- **Splat Operators**
+  - Legacy Splat Operator `.*.`
+  - Generalized Splat Operator (latest)
+  - Understand about Terraform Generic Splat Expression `[*]` when dealing with `count` Meta-Argument and multiple output values
 
-### What are we going to learn ?
-1. Learn about Terraform `Input Variable` basics
-  - AWS Region
-  - Instance Type
-  - Key Name 
-2. Define `Security Groups` and Associate them as a `List item` to AWS EC2 Instance  
-  - vpc-ssh
-  - vpc-web
-3. Learn about Terraform `Output Values`
-  - Public IP
-  - Public DNS
-4. Get latest EC2 AMI ID Using `Terraform Datasources` concept
-5. We are also going to use existing EC2 Key pair `terraform-key`
-6. Use all the above to create an EC2 Instance in default VPC
+## Step-02: c1-versions.tf 
+- No changes
 
-
-## Step-02: c2-variables.tf - Define Input Variables in Terraform
-- [Terraform Input Variables](https://www.terraform.io/docs/language/values/variables.html)
-- [Terraform Input Variable Usage - 10 different types](https://github.com/stacksimplify/hashicorp-certified-terraform-associate/tree/main/05-Terraform-Variables/05-01-Terraform-Input-Variables)
+## Step-03: c2-variables.tf - Lists and Maps
 ```t
-# AWS Region
-variable "aws_region" {
-  description = "Region in which AWS Resources to be created"
-  type = string
-  default = "us-east-1"  
+# AWS EC2 Instance Type - List
+variable "instance_type_list" {
+  description = "EC2 Instnace Type"
+  type = list(string)
+  default = ["t3.micro", "t3.small"]
 }
 
-# AWS EC2 Instance Type
-variable "instance_type" {
-  description = "EC2 Instance Type"
-  type = string
-  default = "t3.micro"  
-}
 
-# AWS EC2 Instance Key Pair
-variable "instance_keypair" {
-  description = "AWS EC2 Key pair that need to be associated with EC2 Instance"
-  type = string
-  default = "terraform-key"
-}
-```
-- Reference the variables in respective `.tf`fies
-```t
-# c1-versions.tf
-region  = var.aws_region
-
-# c5-ec2instance.tf
-instance_type = var.instance_type
-key_name = var.instance_keypair  
-```
-
-## Step-03: c3-ec2securitygroups.tf - Define Security Group Resources in Terraform
-- [Resource: aws_security_group](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/security_group)
-```t
-# Create Security Group - SSH Traffic
-resource "aws_security_group" "vpc-ssh" {
-  name        = "vpc-ssh"
-  description = "Dev VPC SSH"
-  ingress {
-    description = "Allow Port 22"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-  egress {
-    description = "Allow all ip and ports outboun"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-}
-
-# Create Security Group - Web Traffic
-resource "aws_security_group" "vpc-web" {
-  name        = "vpc-web"
-  description = "Dev VPC web"
-  ingress {
-    description = "Allow Port 80"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    description = "Allow Port 443"
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    description = "Allow all ip and ports outbound"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
+# AWS EC2 Instance Type - Map
+variable "instance_type_map" {
+  description = "EC2 Instnace Type"
+  type = map(string)
+  default = {
+    "dev" = "t3.micro"
+    "qa"  = "t3.small"
+    "prod" = "t3.large"
   }
 }
 ```
-- Reference the security groups in `c5-ec2instance.tf` file as a list item
-```t
-# List Item
-vpc_security_group_ids = [aws_security_group.vpc-ssh.id, aws_security_group.vpc-web.id]  
-```
 
-## Step-04: c4-ami-datasource.tf - Define Get Latest AMI ID for Amazon Linux2 OS
-- [Data Source: aws_ami](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/ami)
-```t
-# Get latest AMI ID for Amazon Linux2 OS
-# Get Latest AWS AMI ID for Amazon2 Linux
-data "aws_ami" "amzlinux2" {
-  most_recent = true
-  owners = [ "amazon" ]
-  filter {
-    name = "name"
-    values = [ "amzn2-ami-hvm-*-gp2" ]
-  }
-  filter {
-    name = "root-device-type"
-    values = [ "ebs" ]
-  }
-  filter {
-    name = "virtualization-type"
-    values = [ "hvm" ]
-  }
-  filter {
-    name = "architecture"
-    values = [ "x86_64" ]
-  }
-}
-```
-- Reference the datasource in `c5-ec2instance.tf` file
-```t
-# Reference Datasource to get the latest AMI ID
-ami = data.aws_ami.amzlinux2.id 
-```
+## Step-04: c3-ec2securitygroups.tf and c4-ami-datasource.tf
+- No changes to both files
 
-## Step-05: c5-ec2instance.tf - Define EC2 Instance Resource
-- [Resource: aws_instance](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/instance)
+## Step-05: c5-ec2instance.tf
 ```t
-# EC2 Instance
-resource "aws_instance" "myec2vm" {
-  ami = data.aws_ami.amzlinux2.id 
-  instance_type = var.instance_type
-  user_data = file("${path.module}/app1-install.sh")
-  key_name = var.instance_keypair
-  vpc_security_group_ids = [aws_security_group.vpc-ssh.id, aws_security_group.vpc-web.id]  
+# How to reference List values ?
+instance_type = var.instance_type_list[1]
+
+# How to reference Map values ?
+instance_type = var.instance_type_map["prod"]
+
+# Meta-Argument Count
+count = 2
+
+# count.index
   tags = {
-    "Name" = "EC2 Demo 2"
+    "Name" = "Count-Demo-${count.index}"
   }
-}
 ```
 
-
-## Step-06: c6-outputs.tf - Define Output Values 
-- [Output Values](https://www.terraform.io/docs/language/values/outputs.html)
+## Step-06: c6-outputs.tf
+- for loop with List
+- for loop with Map
+- for loop with Map Advanced
 ```t
-# Terraform Output Values
-output "instance_publicip" {
-  description = "EC2 Instance Public IP"
-  value = aws_instance.myec2vm.public_ip
+
+# Output - For Loop with List
+output "for_output_list" {
+  description = "For Loop with List"
+  value = [for instance in aws_instance.myec2vm: instance.public_dns ]
 }
 
-output "instance_publicdns" {
-  description = "EC2 Instance Public DNS"
-  value = aws_instance.myec2vm.public_dns
+# Output - For Loop with Map
+output "for_output_map1" {
+  description = "For Loop with Map"
+  value = {for instance in aws_instance.myec2vm: instance.id => instance.public_dns}
+}
+
+# Output - For Loop with Map Advanced
+output "for_output_map2" {
+  description = "For Loop with Map - Advanced"
+  value = {for c, instance in aws_instance.myec2vm: c => instance.public_dns}
+}
+
+# Output Legacy Splat Operator (latest) - Returns the List
+output "legacy_splat_instance_publicdns" {
+  description = "Legacy Splat Expression"
+  value = aws_instance.myec2vm.*.public_dns
+}  
+
+# Output Latest Generalized Splat Operator - Returns the List
+output "latest_splat_instance_publicdns" {
+  description = "Generalized Splat Expression"
+  value = aws_instance.myec2vm[*].public_dns
 }
 ```
 
@@ -186,51 +103,42 @@ output "instance_publicdns" {
 ```t
 # Terraform Initialize
 terraform init
-Observation:
-1) Initialized Local Backend
-2) Downloaded the provider plugins (initialized plugins)
-3) Review the folder structure ".terraform folder"
 
 # Terraform Validate
 terraform validate
-Observation:
-1) If any changes to files, those will come as printed in stdout (those file names will be printed in CLI)
 
 # Terraform Plan
 terraform plan
-Observation:
-1) Verify the latest AMI ID picked and displayed in plan
-2) Verify the number of resources that going to get created
-3) Verify the variable replacements worked as expected
+Observations: 
+1) play with Lists and Maps for instance_type
 
 # Terraform Apply
-terraform apply 
-[or]
 terraform apply -auto-approve
-Observations:
-1) Create resources on cloud
-2) Created terraform.tfstate file when you run the terraform apply command
-3) Verify the EC2 Instance AMI ID which got created
+Observations: 
+1) Two EC2 Instances (Count = 2) of a Resource myec2vm will be created
+2) Count.index will start from 0 and end with 1 for VM Names
+3) Review outputs in detail (for loop with list, maps, maps advanced, splat legacy and splat latest)
 ```
 
-## Step-08: Access Application
+## Step-08: Terraform Comments
+- Single Line Comments - `#` and `//`
+- Multi-line Commnets - `Start with /*` and `end with */`
+- We are going to comment the legacy splat operator, which might be decommissioned in future versions
 ```t
-# Access index.html
-http://<PUBLIC-IP>/index.html
-http://<PUBLIC-IP>/app1/index.html
-
-# Access metadata.html
-http://<PUBLIC-IP>/app1/metadata.html
+# Output Legacy Splat Operator (latest) - Returns the List
+/* output "legacy_splat_instance_publicdns" {
+  description = "Legacy Splat Expression"
+  value = aws_instance.myec2vm.*.public_dns
+}  */
 ```
 
 ## Step-09: Clean-Up
 ```t
 # Terraform Destroy
-terraform plan -destroy  # You can view destroy plan using this command
-terraform destroy
+terraform destroy -auto-approve
 
-# Clean-Up Files
+# Files
 rm -rf .terraform*
 rm -rf terraform.tfstate*
 ```
-  
+
