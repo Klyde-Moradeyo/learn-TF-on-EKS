@@ -20,7 +20,7 @@ output "for_output_map1" {
 }
 
 # Output - For Loop with Map Advanced
-output "for_output_map1" {
+output "for_output_map2" {
     description = "For Loop with Map - Advanced"
     value = { for c, instance in aws_instance.myec2vm: c => instance.public_dns } # For each count number (c) get the public dns
 }
