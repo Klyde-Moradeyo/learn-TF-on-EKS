@@ -1,84 +1,105 @@
-# Terraform for_each Meta-Argument with Functions toset, tomap
+# Terraform For Loops, Lists, Maps and Count Meta-Argument
+
 ## Step-00: Pre-requisite Note
 - We are using the `default vpc` in `us-east-1` region
 
 ## Step-01: Introduction
-- `for_each` Meta-Argument
-- `toset` function
-- `tomap` function
-- Data Source: aws_availability_zones
+- Terraform Meta-Argument: `Count`
+- **Terraform Lists & Maps**
+  - List(string)
+  - map(string)
+- **Terraform for loops**
+  - for loop with List
+  - for loop with Map
+  - for loop with Map Advanced
+- **Splat Operators**
+  - Legacy Splat Operator `.*.`
+  - Generalized Splat Operator (latest)
+  - Understand about Terraform Generic Splat Expression `[*]` when dealing with `count` Meta-Argument and multiple output values
 
-## Step-02: No changes to files
-- c1-versions.tf
-- c2-variables.tf
-- c3-ec2securitygroups.tf
-- c4-ami-datasource.tf
+## Step-02: c1-versions.tf 
+- No changes
 
-## Step-03: c5-ec2instance.tf
-- To understand more about [for_each](https://www.terraform.io/docs/language/meta-arguments/for_each.html)
-
-### Step-03-01: Availability Zones Datasource
+## Step-03: c2-variables.tf - Lists and Maps
 ```t
-# Availability Zones Datasource
-data "aws_availability_zones" "my_azones" {
-  filter {
-    name   = "opt-in-status"
-    values = ["opt-in-not-required"]
+# AWS EC2 Instance Type - List
+variable "instance_type_list" {
+  description = "EC2 Instnace Type"
+  type = list(string)
+  default = ["t3.micro", "t3.small"]
+}
+
+
+# AWS EC2 Instance Type - Map
+variable "instance_type_map" {
+  description = "EC2 Instnace Type"
+  type = map(string)
+  default = {
+    "dev" = "t3.micro"
+    "qa"  = "t3.small"
+    "prod" = "t3.large"
   }
 }
 ```
 
-### Step-03-02: EC2 Instance Resource
+## Step-04: c3-ec2securitygroups.tf and c4-ami-datasource.tf
+- No changes to both files
+
+## Step-05: c5-ec2instance.tf
 ```t
-# EC2 Instance
-resource "aws_instance" "myec2vm" {
-  ami = data.aws_ami.amzlinux2.id
-  instance_type = var.instance_type
-  user_data = file("${path.module}/app1-install.sh")
-  key_name = var.instance_keypair
-  vpc_security_group_ids = [ aws_security_group.vpc-ssh.id, aws_security_group.vpc-web.id   ]
-  # Create EC2 Instance in all Availabilty Zones of a VPC  
-  for_each = toset(data.aws_availability_zones.my_azones.names)
-  availability_zone = each.key # You can also use each.value because for list items each.key == each.value
+# How to reference List values ?
+instance_type = var.instance_type_list[1]
+
+# How to reference Map values ?
+instance_type = var.instance_type_map["prod"]
+
+# Meta-Argument Count
+count = 2
+
+# count.index
   tags = {
-    "Name" = "For-Each-Demo-${each.key}"
+    "Name" = "Count-Demo-${count.index}"
   }
-}
 ```
 
-## Step-04: c6-outputs.tf
+## Step-06: c6-outputs.tf
+- for loop with List
+- for loop with Map
+- for loop with Map Advanced
 ```t
 
-# EC2 Instance Public IP with TOSET
-output "instance_publicip" {
-  description = "EC2 Instance Public IP"
-  #value = aws_instance.myec2vm.*.public_ip   # Legacy Splat
-  #value = aws_instance.myec2vm[*].public_ip  # Latest Splat
-  value = toset([
-      for myec2vm in aws_instance.myec2vm : myec2vm.public_ip
-    ])  
+# Output - For Loop with List
+output "for_output_list" {
+  description = "For Loop with List"
+  value = [for instance in aws_instance.myec2vm: instance.public_dns ]
 }
 
-# EC2 Instance Public DNS with TOSET
-output "instance_publicdns" {
-  description = "EC2 Instance Public DNS"
-  #value = aws_instance.myec2vm[*].public_dns  # Legacy Splat
-  #value = aws_instance.myec2vm[*].public_dns  # Latest Splat
-  value = toset([
-      for myec2vm in aws_instance.myec2vm : myec2vm.public_dns
-    ])    
+# Output - For Loop with Map
+output "for_output_map1" {
+  description = "For Loop with Map"
+  value = {for instance in aws_instance.myec2vm: instance.id => instance.public_dns}
 }
 
-# EC2 Instance Public DNS with MAPS
-output "instance_publicdns2" {
-  value = tomap({
-    for s, myec2vm in aws_instance.myec2vm : s => myec2vm.public_dns
-    # S intends to be a subnet ID
-  })
+# Output - For Loop with Map Advanced
+output "for_output_map2" {
+  description = "For Loop with Map - Advanced"
+  value = {for c, instance in aws_instance.myec2vm: c => instance.public_dns}
+}
+
+# Output Legacy Splat Operator (latest) - Returns the List
+output "legacy_splat_instance_publicdns" {
+  description = "Legacy Splat Expression"
+  value = aws_instance.myec2vm.*.public_dns
+}  
+
+# Output Latest Generalized Splat Operator - Returns the List
+output "latest_splat_instance_publicdns" {
+  description = "Generalized Splat Expression"
+  value = aws_instance.myec2vm[*].public_dns
 }
 ```
 
-## Step-05: Execute Terraform Commands
+## Step-07: Execute Terraform Commands
 ```t
 # Terraform Initialize
 terraform init
@@ -88,38 +109,36 @@ terraform validate
 
 # Terraform Plan
 terraform plan
+Observations: 
+1) play with Lists and Maps for instance_type
 
 # Terraform Apply
 terraform apply -auto-approve
 Observations: 
-1) Should fail with not creating EC2 Instance in 1 availability zone in region us-east-1
-2) We will learn about fixing this in next two sections 05-03 and 05-04
-3) Outputs not displayed as we failed during terraform apply. We will see and review outputs in section 05-04
+1) Two EC2 Instances (Count = 2) of a Resource myec2vm will be created
+2) Count.index will start from 0 and end with 1 for VM Names
+3) Review outputs in detail (for loop with list, maps, maps advanced, splat legacy and splat latest)
 ```
 
-## Step-06: Expected Error Message
+## Step-08: Terraform Comments
+- Single Line Comments - `#` and `//`
+- Multi-line Commnets - `Start with /*` and `end with */`
+- We are going to comment the legacy splat operator, which might be decommissioned in future versions
 ```t
-Error: Error launching source instance: Unsupported: Your requested instance type (t3.micro) is not supported in your requested Availability Zone (us-east-1e). Please retry your request by not specifying an Availability Zone or choosing us-east-1a, us-east-1b, us-east-1c, us-east-1d, us-east-1f.
-	status code: 400, request id: 52e0e358-17a0-434b-80de-5bc5f956eedb
-
-  on c5-ec2instance.tf line 35, in resource "aws_instance" "myec2vm":
-  35: resource "aws_instance" "myec2vm" {
-
+# Output Legacy Splat Operator (latest) - Returns the List
+/* output "legacy_splat_instance_publicdns" {
+  description = "Legacy Splat Expression"
+  value = aws_instance.myec2vm.*.public_dns
+}  */
 ```
 
-## Step-07: Clean-Up
+## Step-09: Clean-Up
 ```t
 # Terraform Destroy
 terraform destroy -auto-approve
 
-# Clean-Up
+# Files
 rm -rf .terraform*
 rm -rf terraform.tfstate*
 ```
 
-## References
-- [Terraform Functions](https://www.terraform.io/docs/language/functions/tolist.html)
-- [Data Source: aws_availability_zones](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/availability_zones)
-- [for_each Meta-Argument](https://www.terraform.io/docs/language/meta-arguments/for_each.html)
-- [tomap Function](https://www.terraform.io/docs/language/functions/tomap.html)
-- [toset Function](https://www.terraform.io/docs/language/functions/toset.html)
