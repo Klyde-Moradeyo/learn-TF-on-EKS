@@ -1,13 +1,3 @@
-# AWS Availablity Zones Data source - https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/availability_zones
-# Command "data.aws_availability_zones.my_azones.names" will return a list. 
-data "aws_availability_zones" "my_azones" {
-  filter {
-    name   = "opt-in-status"
-    values = ["opt-in-not-required"]
-  }
-}
-
-
 # EC2 Instance
 resource "aws_instance" "myec2vm" {
   ami = data.aws_ami.amz_linux2.id
@@ -19,7 +9,9 @@ resource "aws_instance" "myec2vm" {
                             aws_security_group.vpc-web.id   
                             ]
   # Create EC2 Instance in all Availablity Zones of a VPC
-  for_each = toset(data.aws_availability_zones.my_azones.names) # for_each takes a map or a set of Strings NOT a list
+  for_each = toset(keys({ for az, details in data.aws_ec2_instance_type_offerings.my_ins_type:
+                              az => details.instance_types if length(details.instance_types) != 0 
+                        }))
   availablity_zone = each.key # You can also use each.value because for list items each.key == each.value
   tags = {
     "Name" = "For-Each-Demo-${each.key}" # e.g For-Each-Demo-US-east-1
