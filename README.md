@@ -1,116 +1,75 @@
-# Meta-Argument for_each with AZ Instance Type Check
-
-## Step-00: Pre-requisite Note
-- We are using the `default vpc` in `us-east-1` region
+# Design AWS VPC using AWS Management Console
 
 ## Step-01: Introduction
-- Implement the fix for issue we have faced in `section-05-02` with fix we have developed in `section-05-03`
+- Create VPC
+- Create Public and Private Subnets
+- Create Internet Gateway and Associate to VPC
+- Create NAT Gateway in Public Subnet
+- Create Public Route Table, Add Public Route via Internet Gateway and Associate Public Subnet
+- Create Private Route Table, Add Private Route via NAT Gateway and Associate Private Subnet
 
-## Step-02: c7-get-instancetype-supported-per-az-in-a-region.tf
-- Copy this from previous `05-03-Utility-Project` from file named  `c2-v3-get-instancetype-supported-per-az-in-a-region.tf`
-```t
-# Get List of Availability Zones in a Specific Region
-# Region is set in c1-versions.tf in Provider Block
-data "aws_availability_zones" "my_azones" {
-  filter {
-    name   = "opt-in-status"
-    values = ["opt-in-not-required"]
-  }
-}
+## Step-02: Create VPC
+- **Name:** my-manual-vpc
+- **IPv4 CIDR Block:** 10.0.0.0/16
+- Rest all defaults
+- Click on **Create VPC**
 
-# Check if that respective Instance Type is supported in that Specific Region in list of availability Zones
-# Get the List of Availability Zones in a Particular region where that respective Instance Type is supported
-data "aws_ec2_instance_type_offerings" "my_ins_type" {
-for_each=toset(data.aws_availability_zones.my_azones.names)
-  filter {
-    name   = "instance-type"
-    values = ["t3.micro"]
-  }
-  filter {
-    name   = "location"
-    values = [each.key]
-  }
-  location_type = "availability-zone"
-}
+## Step-03: Create Subnets
+### Step-03-01: Public Subnet
+- **VPC ID:** my-manual-vpc
+- **Subnet Name::** my-public-subnet-1
+- **Availability zone:** us-east-1a
+- **IPv4 CIDR Block:** 10.0.1.0/24
 
+### Step-03-02: Private Subnet
+- **Subnet Name::** my-private-subnet-1
+- **Availability zone:** us-east-1a
+- **IPv4 CIDR Block:** 10.0.101.0/24
+- Click on **Create Subnet**
 
-# Basic Output: All Availability Zones mapped to Supported Instance Types
-output "output_v3_1" {
- value = { for az, details in data.aws_ec2_instance_type_offerings.my_ins_type :
-  az => details.instance_types }   
-}
+## Step-04: Create Internet Gateway and Associate it to VPC
+- **Name Tag:** my-igw
+- Click on **Create Internet Gateway**
+- Click on Actions -> Attach to VPC -> my-manual-vpc
 
-# Filtered Output: Exclude Unsupported Availability Zones
-output "output_v3_2" {
-  value = { for az, details in data.aws_ec2_instance_type_offerings.my_ins_type :
-  az => details.instance_types if length(details.instance_types) != 0 }
-}
+## Step-05: Create NAT Gateway
+- **Name:** my-nat-gateway
+- **Subnet:** my-public-subnet-1
+- **Allocate Elastic Ip:** click on that
+- Click on **Create NAT Gateway**
 
-# Filtered Output: with Keys Function - Which gets keys from a Map
-# This will return the list of availability zones supported for a instance type
-output "output_v3_3" {
-  value = keys({ for az, details in data.aws_ec2_instance_type_offerings.my_ins_type :
-  az => details.instance_types if length(details.instance_types) != 0 }) 
-}
-
-# Filtered Output: As the output is list now, get the first item from list (just for learning)
-output "output_v3_4" {
-  value = keys({ for az, details in data.aws_ec2_instance_type_offerings.my_ins_type :
-  az => details.instance_types if length(details.instance_types) != 0 })[0]
-}
-```
-
-## Step-03: c5-ec2instance.tf
-### Step-03-01: Update the `for_each` statement to new one 
-```t
-  for_each = toset(keys({ for az, details in data.aws_ec2_instance_type_offerings.my_ins_type :
-  az => details.instance_types if length(details.instance_types) != 0 }))
-```
-### Step-03-02: Final look of c5-ec2-instance.tf
-```t
-# EC2 Instance
-resource "aws_instance" "myec2vm" {
-  ami = data.aws_ami.amzlinux2.id
-  instance_type = var.instance_type
-  user_data = file("${path.module}/app1-install.sh")
-  key_name = var.instance_keypair
-  vpc_security_group_ids = [ aws_security_group.vpc-ssh.id, aws_security_group.vpc-web.id   ]
-  # Create EC2 Instance in all Availabilty Zones of a VPC  
-  #for_each = toset(data.aws_availability_zones.my_azones.names)
-  for_each = toset(keys({ for az, details in data.aws_ec2_instance_type_offerings.my_ins_type :
-  az => details.instance_types if length(details.instance_types) != 0 }))
-  availability_zone = each.key # You can also use each.value because for list items each.key == each.value
-  tags = {
-    "Name" = "For-Each-Demo-${each.key}"
-  }
-}
-```
-
-## Step-04: Execute Terraform Commands
-```t
-# Terraform Initialize
-terraform init
-
-# Terraform Validate
-terraform validate
-
-# Terraform Plan
-terraform plan
-
-# Terraform Apply
-terraform apply -auto-approve
-Observations:
-1. Verify Outputs
-2. Verify EC2 Instances created via AWS Management Console
-```
+## Step-06: Create Public Route Table and Create Routes and Associate Subnets
+### Step-06-01: Create Public Route Table
+- **Name tag:** my-public-route-table
+- **vpc:** my-manual-vpc
+- Click on **Create**
+### Step-06-02: Create Public Route in newly created Route Table
+- Click on **Add Route**
+- **Destination:** 0.0.0.0/0
+- **Target:** my-igw
+- Click on **Save Route**
+### Step-06-03: Associate Public Subnet 1 in Route Table
+- Click on **Edit Subnet Associations**
+- Select **my-public-subnet-1**
+- Click on **Save**
 
 
-## Step-05: Clean-Up
-```t
-# Terraform Destroy
-terraform destroy -auto-approve
+## Step-07: Create Private Route Table and Create Routes and Associate Subnets
+### Step-07-01: Create Private Route Table
+- **Name tag:** my-private-route-table
+- **vpc:** my-manual-vpc
+- Click on **Create**
+### Step-07-02: Create Private Route in newly created Route Table
+- Click on **Add Route**
+- **Destination:** 0.0.0.0/0
+- **Target:** my-nat-gateway
+- Click on **Save Route**
+### Step-07-03: Associate Private Subnet 1 in Route Table
+- Click on **Edit Subnet Associations**
+- Select **my-private-subnet-1**
+- Click on **Save**
 
-# Delete Files
-rm -rf .terraform*
-rm -rf terraform.tfstate*
-```
+## Step-08: Clean-Up
+- Delete `my-nat-gateway`
+- Wait till NAT Gateway is deleted
+- Delete `my-manual-vpc`
