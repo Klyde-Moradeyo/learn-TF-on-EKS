@@ -1,3 +1,8 @@
+# AWS Availability Zones Datasource
+data "aws_availability_zones" "available" {  
+  #state = "available"
+}
+
 # Create VPC Terraform Module
 module "vpc" {
   source  = "terraform-aws-modules/vpc/aws"
