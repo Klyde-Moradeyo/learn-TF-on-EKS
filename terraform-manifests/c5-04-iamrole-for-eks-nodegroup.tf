@@ -16,8 +16,9 @@ resource "aws_iam_role" "eks_nodegroup_role" {
 }
 
 ##########################################################################
-#       For all of these Iam policies you can see what the entail        #
-# by going to AWS -> IAM -> Policies and search for the bellow policies  #
+#      For all of these Iam policies you can see what the entail        #
+#      by going to AWS -> IAM -> Policies and search for the below      #
+#      policies.                                                        #
 ##########################################################################
 resource "aws_iam_role_policy_attachment" "eks-AmazonEKSWorkerNodePolicy" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
