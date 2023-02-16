@@ -1,220 +1,33 @@
 ---
-title: AWS EC2 Bastion Host in Public Subnet
-description: Create AWS EC2 Bastion Host used to connect to EKS Node Group EC2 VMs
+title: EKS Cluster and Node Groups using Terraform
+description: Create AWS EKS Cluster and Node Groups using Terraform
 ---
 
 ## Step-00: Introduction 
-1. For VPC switch Availability Zones from Static to Dynamic using Datasource `aws_availability_zones`
-2. Create EC2 Key pair that will be used for connecting to Bastion Host and EKS Node Group EC2 VM Instances
-3. EC2 Bastion Host - [Terraform Input Variables](https://www.terraform.io/docs/language/values/variables.html)
-4. EC2 Bastion Host - [AWS Security Group Terraform Module](https://registry.terraform.io/modules/terraform-aws-modules/security-group/aws/latest)
-5. EC2 Bastion Host - [AWS AMI Datasource](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/ami) (Dynamically lookup the latest Amazon2 Linux AMI)
-6. EC2 Bastion Host - [AWS EC2 Instance Terraform Module](https://registry.terraform.io/modules/terraform-aws-modules/ec2-instance/aws/latest)
-7. EC2 Bastion Host - [Terraform Resource AWS EC2 Elastic IP](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/eip)
-8. EC2 Bastion Host - [Terraform Provisioners](https://www.terraform.io/docs/language/resources/provisioners/syntax.html)
-   - [File provisioner](https://www.terraform.io/docs/language/resources/provisioners/file.html)
-   - [remote-exec provisioner](https://www.terraform.io/docs/language/resources/provisioners/local-exec.html)
-   - [local-exec provisioner](https://www.terraform.io/docs/language/resources/provisioners/remote-exec.html)
-9. EC2 Bastion Host - [Output Values](https://www.terraform.io/docs/language/values/outputs.html)
-10. EC2 Bastion Host - ec2bastion.auto.tfvars
-11. EKS Input Variables 
-12. EKS [Local Values](https://www.terraform.io/docs/language/values/locals.html)
-13. EKS Tags in VPC for Public and Private Subnets
-14. Execute Terraform Commands and Test
-15. Elastic IP - [depends_on Meta Argument](https://www.terraform.io/docs/language/meta-arguments/depends_on.html)
+1. Create EKS Cluster
+2. Create Public EKS Node Group
+3. Create Private EKS Node Group
+4. Review the Sample Application Kubernetes Manifests
+5. Deploy sample application and verify
+6. Clean-Up (Sample Application and EKS Cluster and Node Groups)
+## Step-01: Following TF Configs are same from previous section
+- **Terraform Configs Folder:** 
+- c1-versions.tf
+- c2-01-generic-variables.tf
+- c2-02-local-values.tf
+- c3-01-vpc-variables.tf
+- c3-02-vpc-module.tf
+- c3-03-vpc-outputs.tf
+- c4-01-ec2bastion-variables.tf
+- c4-02-ec2bastion-outputs.tf
+- c4-03-ec2bastion-securitygroups.tf
+- c4-04-ami-datasource.tf
+- c4-05-ec2bastion-instance.tf
+- c4-06-ec2bastion-elasticip.tf
+- c4-07-ec2bastion-provisioners.tf
 
-## Step-01: For VPC switch Availability Zones from Static to Dynamic
-- [Datasource: aws_availability_zones](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/availability_zones)
-- **File Name:** `c3-02-vpc-module.tf` for changes 1 and 2
-```t
-# Change-1: Add Datasource named aws_availability_zones
-# AWS Availability Zones Datasource  
-data "aws_availability_zones" "available" {
-}
-
-# Change-2: Update the same in VPC Module
-  azs             = data.aws_availability_zones.available.names
-
-# Change-3: Comment vpc_availability_zones variable in File: c3-01-vpc-variables.tf
-/*
-variable "vpc_availability_zones" {
-  description = "VPC Availability Zones"
-  type = list(string)
-  default = ["us-east-1a", "us-east-1b"]
-}
-*/
-
-# Change-4: Comment hard-coded Availability Zones variable in File: vpc.auto.tfvars 
-#vpc_availability_zones = ["us-east-1a", "us-east-1b"]  
-```
-
-## Step-02: Create EC2 Key pair and save it
-- Go to Services -> EC2 -> Network & Security -> Key Pairs -> Create Key Pair
-- **Name:** eks-terraform-key
-- **Key Pair Type:** RSA (leave to defaults)
-- **Private key file format:** .pem
-- Click on **Create key pair**
-- COPY the downloaded key pair to `terraform-manifests/private-key` folder
-- Provide permissions as `chmod 400 keypair-name`
-```t
-# Provider Permissions to EC2 Key Pair
-cd terraform-manifests/private-key
-chmod 400 eks-terraform-key.pem
-```
-## Step-03: c4-01-ec2bastion-variables.tf
-```t
-# AWS EC2 Instance Terraform Variables
-
-# AWS EC2 Instance Type
-variable "instance_type" {
-  description = "EC2 Instance Type"
-  type = string
-  default = "t3.micro"  
-}
-
-# AWS EC2 Instance Key Pair
-variable "instance_keypair" {
-  description = "AWS EC2 Key pair that need to be associated with EC2 Instance"
-  type = string
-  default = "eks-terraform-key"
-}
-```
-## Step-04: c4-03-ec2bastion-securitygroups.tf
-```t
-# AWS EC2 Security Group Terraform Module
-# Security Group for Public Bastion Host
-module "public_bastion_sg" {
-  source  = "terraform-aws-modules/security-group/aws"
-  version = "4.5.0"
-
-  name = "${local.name}-public-bastion-sg"
-  description = "Security Group with SSH port open for everybody (IPv4 CIDR), egress ports are all world open"
-  vpc_id = module.vpc.vpc_id
-  # Ingress Rules & CIDR Blocks
-  ingress_rules = ["ssh-tcp"]
-  ingress_cidr_blocks = ["0.0.0.0/0"]
-  # Egress Rule - all-all open
-  egress_rules = ["all-all"]
-  tags = local.common_tags
-}
-```
-
-## Step-05: c4-04-ami-datasource.tf
-```t
-# Get latest AMI ID for Amazon Linux2 OS
-data "aws_ami" "amzlinux2" {
-  most_recent = true
-  owners = [ "amazon" ]
-  filter {
-    name = "name"
-    values = [ "amzn2-ami-hvm-*-gp2" ]
-  }
-  filter {
-    name = "root-device-type"
-    values = [ "ebs" ]
-  }
-  filter {
-    name = "virtualization-type"
-    values = [ "hvm" ]
-  }
-  filter {
-    name = "architecture"
-    values = [ "x86_64" ]
-  }
-}
-```
-
-## Step-06: c4-05-ec2bastion-instance.tf
-```t
-# AWS EC2 Instance Terraform Module
-# Bastion Host - EC2 Instance that will be created in VPC Public Subnet
-module "ec2_public" {
-  source  = "terraform-aws-modules/ec2-instance/aws"
-  version = "3.3.0"
-  # insert the required variables here
-  name                   = "${local.name}-BastionHost"
-  ami                    = data.aws_ami.amzlinux2.id
-  instance_type          = var.instance_type
-  key_name               = var.instance_keypair
-  #monitoring             = true
-  subnet_id              = module.vpc.public_subnets[0]
-  vpc_security_group_ids = [module.public_bastion_sg.security_group_id]
-  tags = local.common_tags
-}
-```
-
-## Step-07: c4-06-ec2bastion-elasticip.tf
-```t
-# Create Elastic IP for Bastion Host
-# Resource - depends_on Meta-Argument
-resource "aws_eip" "bastion_eip" {
-  depends_on = [ module.ec2_public, module.vpc ]
-  instance = module.ec2_public.id
-  vpc      = true
-  tags = local.common_tags
-}
-```
-## Step-08: c4-07-ec2bastion-provisioners.tf
-```t
-# Create a Null Resource and Provisioners
-resource "null_resource" "copy_ec2_keys" {
-  depends_on = [module.ec2_public]
-  # Connection Block for Provisioners to connect to EC2 Instance
-  connection {
-    type     = "ssh"
-    host     = aws_eip.bastion_eip.public_ip    
-    user     = "ec2-user"
-    password = ""
-    private_key = file("private-key/eks-terraform-key.pem")
-  }  
-
-## File Provisioner: Copies the terraform-key.pem file to /tmp/terraform-key.pem
-  provisioner "file" {
-    source      = "private-key/eks-terraform-key.pem"
-    destination = "/tmp/eks-terraform-key.pem"
-  }
-## Remote Exec Provisioner: Using remote-exec provisioner fix the private key permissions on Bastion Host
-  provisioner "remote-exec" {
-    inline = [
-      "sudo chmod 400 /tmp/eks-terraform-key.pem"
-    ]
-  }
-## Local Exec Provisioner:  local-exec provisioner (Creation-Time Provisioner - Triggered during Create Resource)
-  provisioner "local-exec" {
-    command = "echo VPC created on `date` and VPC ID: ${module.vpc.vpc_id} >> creation-time-vpc-id.txt"
-    working_dir = "local-exec-output-files/"
-    #on_failure = continue
-  }
-
-}
-```
-
-## Step-09: ec2bastion.auto.tfvars
-```t
-instance_type = "t3.micro"
-instance_keypair = "eks-terraform-key"
-```
-
-## Step-10: c4-02-ec2bastion-outputs.tf
-```t
-# AWS EC2 Instance Terraform Outputs
-# Public EC2 Instances - Bastion Host
-
-## ec2_bastion_public_instance_ids
-output "ec2_bastion_public_instance_ids" {
-  description = "List of IDs of instances"
-  value       = module.ec2_public.id
-}
-
-## ec2_bastion_public_ip
-output "ec2_bastion_eip" {
-  description = "Elastic IP associated to the Bastion Host"
-  value       = aws_eip.bastion_eip.public_ip
-}
-
-```
-
-## Step-11: c5-01-eks-variables.tf
+## Step-02: c5-01-eks-variables.tf
+- **Terraform Configs Folder:** 01-ekscluster-terraform-manifests
 ```t
 # EKS Cluster Input Variables
 variable "cluster_name" {
@@ -222,75 +35,346 @@ variable "cluster_name" {
   type        = string
   default     = "eksdemo"
 }
+
+variable "cluster_service_ipv4_cidr" {
+  description = "service ipv4 cidr for the kubernetes cluster"
+  type        = string
+  default     = null
+}
+
+variable "cluster_version" {
+  description = "Kubernetes minor version to use for the EKS cluster (for example 1.21)"
+  type = string
+  default     = null
+}
+variable "cluster_endpoint_private_access" {
+  description = "Indicates whether or not the Amazon EKS private API server endpoint is enabled."
+  type        = bool
+  default     = false
+}
+
+variable "cluster_endpoint_public_access" {
+  description = "Indicates whether or not the Amazon EKS public API server endpoint is enabled. When it's set to `false` ensure to have a proper private access with `cluster_endpoint_private_access = true`."
+  type        = bool
+  default     = true
+}
+
+variable "cluster_endpoint_public_access_cidrs" {
+  description = "List of CIDR blocks which can access the Amazon EKS public API server endpoint."
+  type        = list(string)
+  default     = ["0.0.0.0/0"]
+}
+
+# EKS Node Group Variables
+## Placeholder space you can create if required
+
 ```
+## Step-03: c5-03-iamrole-for-eks-cluster.tf
+```t
+# Create IAM Role
+resource "aws_iam_role" "eks_master_role" {
+  name = "${local.name}-eks-master-role"
+
+  assume_role_policy = <<POLICY
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "eks.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+POLICY
+}
+
+# Associate IAM Policy to IAM Role
+resource "aws_iam_role_policy_attachment" "eks-AmazonEKSClusterPolicy" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+  role       = aws_iam_role.eks_master_role.name
+}
+
+resource "aws_iam_role_policy_attachment" "eks-AmazonEKSVPCResourceController" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSVPCResourceController"
+  role       = aws_iam_role.eks_master_role.name
+}
+
+```
+## Step-04: c5-04-iamrole-for-eks-nodegroup.tf
+```t
+# IAM Role for EKS Node Group 
+resource "aws_iam_role" "eks_nodegroup_role" {
+  name = "${local.name}-eks-nodegroup-role"
+
+  assume_role_policy = jsonencode({
+    Statement = [{
+      Action = "sts:AssumeRole"
+      Effect = "Allow"
+      Principal = {
+        Service = "ec2.amazonaws.com"
+      }
+    }]
+    Version = "2012-10-17"
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "eks-AmazonEKSWorkerNodePolicy" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+  role       = aws_iam_role.eks_nodegroup_role.name
+}
+
+resource "aws_iam_role_policy_attachment" "eks-AmazonEKS_CNI_Policy" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+  role       = aws_iam_role.eks_nodegroup_role.name
+}
+
+resource "aws_iam_role_policy_attachment" "eks-AmazonEC2ContainerRegistryReadOnly" {
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+  role       = aws_iam_role.eks_nodegroup_role.name
+}
+
+```
+## Step-05: c5-05-securitygroups-eks.tf
+```t
+# Security Group for EKS Node Group - Placeholder file
+
+```
+## Step-06: c5-06-eks-cluster.tf
+```t
+# Create AWS EKS Cluster
+resource "aws_eks_cluster" "eks_cluster" {
+  name     = "${local.name}-${var.cluster_name}"
+  role_arn = aws_iam_role.eks_master_role.arn
+  version = var.cluster_version
+
+  vpc_config {
+    subnet_ids = module.vpc.public_subnets
+    endpoint_private_access = var.cluster_endpoint_private_access
+    endpoint_public_access  = var.cluster_endpoint_public_access
+    public_access_cidrs     = var.cluster_endpoint_public_access_cidrs    
+  }
+
+  kubernetes_network_config {
+    service_ipv4_cidr = var.cluster_service_ipv4_cidr
+  }
+  
+  # Enable EKS Cluster Control Plane Logging
+  enabled_cluster_log_types = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
+
+  # Ensure that IAM Role permissions are created before and deleted after EKS Cluster handling.
+  # Otherwise, EKS will not be able to properly delete EKS managed EC2 infrastructure such as Security Groups.
+  depends_on = [
+    aws_iam_role_policy_attachment.eks-AmazonEKSClusterPolicy,
+    aws_iam_role_policy_attachment.eks-AmazonEKSVPCResourceController,
+  ]
+}
+
+```
+## Step-07: c5-07-eks-node-group-public.tf
+```t
+# Create AWS EKS Node Group - Public
+resource "aws_eks_node_group" "eks_ng_public" {
+  cluster_name    = aws_eks_cluster.eks_cluster.name
+
+  node_group_name = "${local.name}-eks-ng-public"
+  node_role_arn   = aws_iam_role.eks_nodegroup_role.arn
+  subnet_ids      = module.vpc.public_subnets
+  #version = var.cluster_version #(Optional: Defaults to EKS Cluster Kubernetes version)    
+  
+  ami_type = "AL2_x86_64"  
+  capacity_type = "ON_DEMAND"
+  disk_size = 20
+  instance_types = ["t3.medium"]
+  
+  
+  remote_access {
+    ec2_ssh_key = "eks-terraform-key"
+  }
+
+  scaling_config {
+    desired_size = 1
+    min_size     = 1    
+    max_size     = 2
+  }
+
+  # Desired max percentage of unavailable worker nodes during node group update.
+  update_config {
+    max_unavailable = 1    
+    #max_unavailable_percentage = 50    # ANY ONE TO USE
+  }
+
+  # Ensure that IAM Role permissions are created before and deleted after EKS Node Group handling.
+  # Otherwise, EKS will not be able to properly delete EC2 Instances and Elastic Network Interfaces.
+  depends_on = [
+    aws_iam_role_policy_attachment.eks-AmazonEKSWorkerNodePolicy,
+    aws_iam_role_policy_attachment.eks-AmazonEKS_CNI_Policy,
+    aws_iam_role_policy_attachment.eks-AmazonEC2ContainerRegistryReadOnly,
+  ] 
+
+  tags = {
+    Name = "Public-Node-Group"
+  }
+}
+
+```
+## Step-08: c5-08-eks-node-group-private.tf
+```t
+# Create AWS EKS Node Group - Private
+resource "aws_eks_node_group" "eks_ng_private" {
+  cluster_name    = aws_eks_cluster.eks_cluster.name
+
+  node_group_name = "${local.name}-eks-ng-private"
+  node_role_arn   = aws_iam_role.eks_nodegroup_role.arn
+  subnet_ids      = module.vpc.private_subnets
+  #version = var.cluster_version #(Optional: Defaults to EKS Cluster Kubernetes version)    
+  
+  ami_type = "AL2_x86_64"  
+  capacity_type = "ON_DEMAND"
+  disk_size = 20
+  instance_types = ["t3.medium"]
+  
+  
+  remote_access {
+    ec2_ssh_key = "eks-terraform-key"    
+  }
+
+  scaling_config {
+    desired_size = 1
+    min_size     = 1    
+    max_size     = 2
+  }
+
+  # Desired max percentage of unavailable worker nodes during node group update.
+  update_config {
+    max_unavailable = 1    
+    #max_unavailable_percentage = 50    # ANY ONE TO USE
+  }
+
+  # Ensure that IAM Role permissions are created before and deleted after EKS Node Group handling.
+  # Otherwise, EKS will not be able to properly delete EC2 Instances and Elastic Network Interfaces.
+  depends_on = [
+    aws_iam_role_policy_attachment.eks-AmazonEKSWorkerNodePolicy,
+    aws_iam_role_policy_attachment.eks-AmazonEKS_CNI_Policy,
+    aws_iam_role_policy_attachment.eks-AmazonEC2ContainerRegistryReadOnly,
+  ]  
+  tags = {
+    Name = "Private-Node-Group"
+  }
+}
 
 
-
-## Step-12: eks.auto.tfvars
+```
+## Step-09: eks.auto.tfvars
 ```t
 cluster_name = "eksdemo1"
+cluster_service_ipv4_cidr = "172.20.0.0/16"
+cluster_version = "1.21"
+cluster_endpoint_private_access = true
+cluster_endpoint_public_access = true
+cluster_endpoint_public_access_cidrs = ["0.0.0.0/0"]
 ```
 
-## Step-13: c2-02-local-values.tf
+## Step-10: c5-02-eks-outputs.tf
 ```t
-# Add additional local value
-  eks_cluster_name = "${local.name}-${var.cluster_name}"  
-```
+# EKS Cluster Outputs
+output "cluster_id" {
+  description = "The name/id of the EKS cluster."
+  value       = aws_eks_cluster.eks_cluster.id
+}
 
-## Step-14: c3-02-vpc-module.tf
-- Update VPC Tags to Support EKS
-```t
-# Create VPC Terraform Module
-module "vpc" {
-  source  = "terraform-aws-modules/vpc/aws"
-  version = "3.11.0"
-  #version = "~> 3.11"
+output "cluster_arn" {
+  description = "The Amazon Resource Name (ARN) of the cluster."
+  value       = aws_eks_cluster.eks_cluster.arn
+}
 
-  # VPC Basic Details
-  name = local.eks_cluster_name
-  cidr = var.vpc_cidr_block
-  azs             = data.aws_availability_zones.available.names
-  public_subnets  = var.vpc_public_subnets
-  private_subnets = var.vpc_private_subnets  
+output "cluster_certificate_authority_data" {
+  description = "Nested attribute containing certificate-authority-data for your cluster. This is the base64 encoded certificate data required to communicate with your cluster."
+  value       = aws_eks_cluster.eks_cluster.certificate_authority[0].data
+}
 
-  # Database Subnets
-  database_subnets = var.vpc_database_subnets
-  create_database_subnet_group = var.vpc_create_database_subnet_group
-  create_database_subnet_route_table = var.vpc_create_database_subnet_route_table
-  # create_database_internet_gateway_route = true
-  # create_database_nat_gateway_route = true
-  
-  # NAT Gateways - Outbound Communication
-  enable_nat_gateway = var.vpc_enable_nat_gateway 
-  single_nat_gateway = var.vpc_single_nat_gateway
+output "cluster_endpoint" {
+  description = "The endpoint for your EKS Kubernetes API."
+  value       = aws_eks_cluster.eks_cluster.endpoint
+}
 
-  # VPC DNS Parameters
-  enable_dns_hostnames = true
-  enable_dns_support   = true
+output "cluster_version" {
+  description = "The Kubernetes server version for the EKS cluster."
+  value       = aws_eks_cluster.eks_cluster.version
+}
 
-  
-  tags = local.common_tags
-  vpc_tags = local.common_tags
+output "cluster_security_group_id" {
+  description = "Security group ID attached to the EKS cluster. On 1.14 or later, this is the 'Additional security groups' in the EKS console."
+  value       = [aws_eks_cluster.eks_cluster.vpc_config[0].security_group_ids]
+}
 
-  # Additional Tags to Subnets
-  public_subnet_tags = {
-    Type = "Public Subnets"
-    "kubernetes.io/role/elb" = 1    
-    "kubernetes.io/cluster/${local.eks_cluster_name}" = "shared"        
-  }
-  private_subnet_tags = {
-    Type = "private-subnets"
-    "kubernetes.io/role/internal-elb" = 1    
-    "kubernetes.io/cluster/${local.eks_cluster_name}" = "shared"    
-  }
+output "cluster_iam_role_name" {
+  description = "IAM role name of the EKS cluster."
+  value       = aws_iam_role.eks_master_role.name 
+}
 
-  database_subnet_tags = {
-    Type = "database-subnets"
-  }
+output "cluster_iam_role_arn" {
+  description = "IAM role ARN of the EKS cluster."
+  value       = aws_iam_role.eks_master_role.arn
+}
+
+output "cluster_oidc_issuer_url" {
+  description = "The URL on the EKS cluster OIDC Issuer"
+  value       = aws_eks_cluster.eks_cluster.identity[0].oidc[0].issuer
+}
+
+output "cluster_primary_security_group_id" {
+  description = "The cluster primary security group ID created by the EKS cluster on 1.14 or later. Referred to as 'Cluster security group' in the EKS console."
+  value       = aws_eks_cluster.eks_cluster.vpc_config[0].cluster_security_group_id
+}
+
+# EKS Node Group Outputs - Public
+output "node_group_public_id" {
+  description = "Public Node Group ID"
+  value       = aws_eks_node_group.eks_ng_public.id
+}
+
+output "node_group_public_arn" {
+  description = "Public Node Group ARN"
+  value       = aws_eks_node_group.eks_ng_public.arn
+}
+
+output "node_group_public_status" {
+  description = "Public Node Group status"
+  value       = aws_eks_node_group.eks_ng_public.status 
+}
+
+output "node_group_public_version" {
+  description = "Public Node Group Kubernetes Version"
+  value       = aws_eks_node_group.eks_ng_public.version
+}
+
+# EKS Node Group Outputs - Private
+
+output "node_group_private_id" {
+  description = "Node Group 1 ID"
+  value       = aws_eks_node_group.eks_ng_private.id
+}
+
+output "node_group_private_arn" {
+  description = "Private Node Group ARN"
+  value       = aws_eks_node_group.eks_ng_private.arn
+}
+
+output "node_group_private_status" {
+  description = "Private Node Group status"
+  value       = aws_eks_node_group.eks_ng_private.status 
+}
+
+output "node_group_private_version" {
+  description = "Private Node Group Kubernetes Version"
+  value       = aws_eks_node_group.eks_ng_private.version
 }
 ```
 
-## Step-15: Execute Terraform Commands
+## Step-11: Execute Terraform Commands
 ```t
 # Terraform Initialize
 terraform init
@@ -303,30 +387,268 @@ terraform plan
 
 # Terraform Apply
 terraform apply -auto-approve
+
+# Verify Outputs on the CLI or using below command
+terraform output
 ```
 
-## Step-16: Verify the following
-1. Verify VPC Tags
-2. Verify Bastion EC2 Instance 
-3. Verify Bastion EC2 Instance Security Group
-4. Connect to Bastion EC2 Instnace
+## Step-12: Verify the following Services using AWS Management Console
+1. Go to Services -> Elastic Kubernetes Service -> Clusters
+2. Verify the following
+   - Overview
+   - Workloads
+   - Configuration
+     - Details
+     - Compute
+     - Networking
+     - Add-Ons
+     - Authentication
+     - Logging
+     - Update history
+     - Tags
+
+
+## Step-13: Install kubectl CLI
+- [Install kubectl CLI](https://docs.aws.amazon.com/eks/latest/userguide/install-kubectl.html)
+
+## Step-14: Configure kubeconfig for kubectl
+```t
+# Configure kubeconfig for kubectl
+aws eks --region <region-code> update-kubeconfig --name <cluster_name>
+aws eks --region us-east-1 update-kubeconfig --name hr-stag-eksdemo1
+
+# List Worker Nodes
+kubectl get nodes
+kubectl get nodes -o wide
+
+# Verify Services
+kubectl get svc
+```
+
+## Step-15: Connect to EKS Worker Nodes using Bastion Host
 ```t
 # Connect to Bastion EC2 Instance
-ssh -i private-key/eks-terraform-key.pem ec2-user@<Elastic-IP-Bastion-Host>
-sudo su -
-
-# Verify File and Remote Exec Provisioners moved the EKS PEM file
+ssh -i private-key/eks-terraform-key.pem ec2-user@<Bastion-EC2-Instance-Public-IP>
 cd /tmp
-ls -lrta
-Observation: We should find the file named "eks-terraform-key.pem" moved from our local desktop to Bastion EC2 Instance "/tmp" folder
+
+# Connect to Kubernetes Worker Nodes - Public Node Group
+ssh -i private-key/eks-terraform-key.pem ec2-user@<Public-NodeGroup-EC2Instance-PublicIP> 
+[or]
+ec2-user@<Public-NodeGroup-EC2Instance-PrivateIP>
+
+# Connect to Kubernetes Worker Nodes - Private Node Group from Bastion Host
+ssh -i eks-terraform-key.pem ec2-user@<Private-NodeGroup-EC2Instance-PrivateIP>
+
+##### REPEAT BELOW STEPS ON BOTH PUBLIC AND PRIVATE NODE GROUPS ####
+# Verify if kubelet and kube-proxy running
+ps -ef | grep kube
+
+# Verify kubelet-config.json
+cat /etc/kubernetes/kubelet/kubelet-config.json
+
+# Verify kubelet kubeconfig
+cat /var/lib/kubelet/kubeconfig
+
+# Verify clusters.cluster.server value(EKS Cluster API Server Endpoint)  DNS resolution which is taken from kubeconfig
+nslookup <EKS Cluster API Server Endpoint>
+nslookup CF89341F3269FB40F03AAB19E695DBAD.gr7.us-east-1.eks.amazonaws.com
+Very Important Note: Test this on Bastion Host, as EKS worker nodes doesnt have nslookup tool installed. 
+[or]
+# Verify clusters.cluster.server value(EKS Cluster API Server Endpoint)   with wget 
+Try with wget on Node Group EC2 Instances (both public and private)
+wget <Kubernetes API Server Endpoint>
+wget https://0cbda14fd801e669f05c2444fb16d1b5.gr7.us-east-1.eks.amazonaws.com
+
+## Sample Output
+[ec2-user@ip-10-0-2-205 ~]$ wget https://0cbda14fd801e669f05c2444fb16d1b5.gr7.us-east-1.eks.amazonaws.com
+--2021-12-30 08:40:50--  https://0cbda14fd801e669f05c2444fb16d1b5.gr7.us-east-1.eks.amazonaws.com/
+Resolving 0cbda14fd801e669f05c2444fb16d1b5.gr7.us-east-1.eks.amazonaws.com (0cbda14fd801e669f05c2444fb16d1b5.gr7.us-east-1.eks.amazonaws.com)... 54.243.111.82, 34.197.138.103
+Connecting to 0cbda14fd801e669f05c2444fb16d1b5.gr7.us-east-1.eks.amazonaws.com (0cbda14fd801e669f05c2444fb16d1b5.gr7.us-east-1.eks.amazonaws.com)|54.243.111.82|:443... connected.
+ERROR: cannot verify 0cbda14fd801e669f05c2444fb16d1b5.gr7.us-east-1.eks.amazonaws.com's certificate, issued by ‘/CN=kubernetes’:
+  Unable to locally verify the issuer's authority.
+To connect to 0cbda14fd801e669f05c2444fb16d1b5.gr7.us-east-1.eks.amazonaws.com insecurely, use `--no-check-certificate'.
+[ec2-user@ip-10-0-2-205 ~]$
+
+
+# Verify Pod Infra Container for Kubelete
+Example: --pod-infra-container-image=602401143452.dkr.ecr.us-east-1.amazonaws.com/eks/pause:3.1-eksbuild.1
+Observation:
+1. This Pod Infra container will be downloaded from AWS Elastic Container Registry ECR
+2. All the EKS related system pods also will be downloaded from AWS ECR only
 ```
 
-## Step-17: Clean-Up
+## Step-16: Verify Namespaces and Resources in Namespaces
 ```t
-# Delete Resources
-terraform destroy -auto-approve
-terraform apply -destroy -auto-approve
+# Verify Namespaces
+kubectl get namespaces
+kubectl get ns 
+Observation: 4 namespaces will be listed by default
+1. kube-node-lease
+2. kube-public
+3. default
+4. kube-system
 
-# Delete Files
-rm -rf .terraform* terraform.tfstate*
+# Verify Resources in kube-node-lease namespace
+kubectl get all -n kube-node-lease
+
+# Verify Resources in kube-public namespace
+kubectl get all -n kube-public
+
+# Verify Resources in default namespace
+kubectl get all -n default
+Observation: 
+1. Kubernetes Service: Cluster IP Service for Kubernetes Endpoint
+
+# Verify Resources in kube-system namespace
+kubectl get all -n kube-system
+Observation: 
+1. Kubernetes Deployment: coredns
+2. Kubernetes DaemonSet: aws-node, kube-proxy
+3. Kubernetes Service: kube-dns
+4. Kubernetes Pods: coredns, aws-node, kube-proxy
+```
+
+## Step-17: Verify pods in kube-system namespace
+```t
+# Verify System pods in kube-system namespace
+kubectl get pods # Nothing in default namespace
+kubectl get pods -n kube-system
+kubectl get pods -n kube-system -o wide
+
+# Verify Daemon Sets in kube-system namespace
+kubectl get ds -n kube-system
+Observation: The below two daemonsets will be running
+1. aws-node
+2. kube-proxy
+
+# Describe aws-node Daemon Set
+kubectl describe ds aws-node -n kube-system
+Observation: 
+1. Reference "Image" value it will be the ECR Registry URL 
+
+# Describe kube-proxy Daemon Set
+kubectl describe ds kube-proxy -n kube-system
+1. Reference "Image" value it will be the ECR Registry URL 
+
+# Describe coredns Deployment
+kubectl describe deploy coredns -n kube-system
+```
+
+## Step-18: EKS Network Interfaces 
+- Discuss about EKS Network Interfaces
+
+## Step-19: EKS Security Groups
+- EKS Cluster Security Group
+- EKS Node Security Group
+
+## Step-20: Comment EKS Private Node Group TF Configs
+- Currently we have 3 EC2 Instances running but ideally we don't need all 3 for our next 3 section (Section-09, 10 and 11), so we will do some cost cutting now. 
+- Over the process we will learn how to deprovision resources using Terraform for EKS Cluster
+- In all the upcoming few demos we don't need to run both Public and Private Node Groups.
+- This is created during Basic EKS Cluster to let you know that we can create EKS Node Groups in our desired subnet (Example: Private Subnets) provided if we have outbound connectivity via NAT Gateway to connect to EKS Cluster Control Plane API Server Endpoint. 
+- This adds additional cost for us.
+- We will run only Public Node Group with 1 EC2 Instance as Worker Node
+- We will comment Private Node Group related code
+- **Change-1:** Comment all code in `c5-08-eks-node-group-private.tf`
+```t
+# Create AWS EKS Node Group - Private
+/*
+resource "aws_eks_node_group" "eks_ng_private" {
+  cluster_name    = aws_eks_cluster.eks_cluster.name
+
+  node_group_name = "${local.name}-eks-ng-private"
+  node_role_arn   = aws_iam_role.eks_nodegroup_role.arn
+  subnet_ids      = module.vpc.private_subnets
+  #version = var.cluster_version #(Optional: Defaults to EKS Cluster Kubernetes version)    
+  
+  ami_type = "AL2_x86_64"  
+  capacity_type = "ON_DEMAND"
+  disk_size = 20
+  instance_types = ["t3.medium"]
+  
+  
+  remote_access {
+    ec2_ssh_key = "eks-terraform-key"    
+  }
+
+  scaling_config {
+    desired_size = 1
+    min_size     = 1    
+    max_size     = 2
+  }
+
+  # Desired max percentage of unavailable worker nodes during node group update.
+  update_config {
+    max_unavailable = 1    
+    #max_unavailable_percentage = 50    # ANY ONE TO USE
+  }
+
+  # Ensure that IAM Role permissions are created before and deleted after EKS Node Group handling.
+  # Otherwise, EKS will not be able to properly delete EC2 Instances and Elastic Network Interfaces.
+  depends_on = [
+    aws_iam_role_policy_attachment.eks-AmazonEKSWorkerNodePolicy,
+    aws_iam_role_policy_attachment.eks-AmazonEKS_CNI_Policy,
+    aws_iam_role_policy_attachment.eks-AmazonEC2ContainerRegistryReadOnly,
+  ]  
+  tags = {
+    Name = "Private-Node-Group"
+  }
+}
+
+*/
+```
+- **Change-2:** Comment private node group related Terraform Outputs in `c5-02-eks-outputs.tf`
+```t
+# EKS Node Group Outputs - Private
+/*
+output "node_group_private_id" {
+  description = "Node Group 1 ID"
+  value       = aws_eks_node_group.eks_ng_private.id
+}
+
+output "node_group_private_arn" {
+  description = "Private Node Group ARN"
+  value       = aws_eks_node_group.eks_ng_private.arn
+}
+
+output "node_group_private_status" {
+  description = "Private Node Group status"
+  value       = aws_eks_node_group.eks_ng_private.status 
+}
+
+output "node_group_private_version" {
+  description = "Private Node Group Kubernetes Version"
+  value       = aws_eks_node_group.eks_ng_private.version
+}
+
+*/
+```
+
+## Step-21: Execute Terraform Commands & verify
+```t
+# Terraform Validate
+terraform validate
+
+# Terraform Plan
+terraform plan
+
+# Terraform Apply
+terraform apply -auto-approve
+
+# Verify Kubernetes Worker Nodes
+kubectl get nodes -o wide
+Observation:
+1. Should see only 1 EKS Worker Node running
+```
+
+## Step-22: Stop Bastion Host EC2 Instance
+- Stop the Bastion VM to save cost
+- We will start this VM only when we are in need. 
+- It will be provisioned when we create EKS Cluster but we will put it in stopped state unless we need it. 
+- This will save one EC2 Instance cost for us. 
+- Totally next three sections we will use only EC2 Instance in Public Node Group to run our demos.
+```t
+# Stop EC2 Instance (Bastion Host)
+1. Login to AWS Mgmt Console
+2. Go to Services -> EC2 -> Instances -> hr-stag-BastionHost -> Instance State -> Stop
 ```
