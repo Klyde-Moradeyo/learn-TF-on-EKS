@@ -18,7 +18,7 @@ resource "null_resource" "copy_ec2_keys" {
     # was getting no directory error in line 42
     provisioner "local-exec" {
         command = "mkdir -p local-exec-output-files"
-        working_dir = "./local-exec-output-files/"
+        working_dir = "."
     }
 
     # file provisioners: copies the terraform-key.pem file to /tmp/terraform-key.pem
